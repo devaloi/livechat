@@ -1,5 +1,5 @@
 defmodule Livechat.ChatTest do
-  use Livechat.DataCase, async: true
+  use Livechat.DataCase
 
   alias Livechat.Chat
 

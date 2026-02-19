@@ -26,10 +26,39 @@ import {hooks as colocatedHooks} from "phoenix-colocated/livechat"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+
+const Hooks = {
+  ...colocatedHooks,
+  StoreNickname: {
+    mounted() {
+      this.handleEvent("store_nickname", ({nickname}) => {
+        fetch("/nickname", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-csrf-token": csrfToken,
+          },
+          body: JSON.stringify({nickname}),
+        }).then(() => {
+          window.location.reload()
+        })
+      })
+    }
+  },
+  ScrollBottom: {
+    mounted() {
+      this.el.scrollTop = this.el.scrollHeight
+    },
+    updated() {
+      this.el.scrollTop = this.el.scrollHeight
+    }
+  }
+}
+
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: Hooks,
 })
 
 // Show progress bar on live navigation and form submits

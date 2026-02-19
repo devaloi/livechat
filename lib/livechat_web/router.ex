@@ -17,7 +17,12 @@ defmodule LivechatWeb.Router do
   scope "/", LivechatWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    post "/nickname", NicknameController, :set
+
+    live_session :default, on_mount: LivechatWeb.Hooks.NicknameHook do
+      live "/", LobbyLive
+      live "/rooms/:id", ChatRoomLive
+    end
   end
 
   # Other scopes may use custom stacks.
