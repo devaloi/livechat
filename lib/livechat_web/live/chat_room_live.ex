@@ -2,6 +2,9 @@ defmodule LivechatWeb.ChatRoomLive do
   use LivechatWeb, :live_view
 
   alias Livechat.Chat
+  alias Livechat.Presence
+
+  @presence_topic_prefix "presence:room:"
 
   @impl true
   def mount(%{"id" => id}, session, socket) do
@@ -12,16 +15,30 @@ defmodule LivechatWeb.ChatRoomLive do
     else
       room = Chat.get_room!(id)
       messages = Chat.list_messages(room.id)
+      presence_topic = @presence_topic_prefix <> to_string(room.id)
 
       if connected?(socket) do
         Chat.subscribe(room.id)
+        Phoenix.PubSub.subscribe(Livechat.PubSub, presence_topic)
+
+        Presence.track(self(), presence_topic, nickname, %{
+          joined_at: System.system_time(:second)
+        })
       end
+
+      online_users =
+        presence_topic
+        |> Presence.list()
+        |> Map.keys()
+        |> Enum.sort()
 
       {:ok,
        socket
        |> assign(:room, room)
        |> assign(:nickname, nickname)
        |> assign(:messages, messages)
+       |> assign(:online_users, online_users)
+       |> assign(:presence_topic, presence_topic)
        |> assign(:message_form, to_form(%{"body" => ""}))}
     end
   end
@@ -55,6 +72,16 @@ defmodule LivechatWeb.ChatRoomLive do
     {:noreply, assign(socket, :messages, socket.assigns.messages ++ [message])}
   end
 
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
+    online_users =
+      socket.assigns.presence_topic
+      |> Presence.list()
+      |> Map.keys()
+      |> Enum.sort()
+
+    {:noreply, assign(socket, :online_users, online_users)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -68,49 +95,69 @@ defmodule LivechatWeb.ChatRoomLive do
           <span class="badge badge-primary">{@nickname}</span>
         </div>
 
-        <div
-          id="messages"
-          phx-hook="ScrollBottom"
-          class="flex-1 overflow-y-auto space-y-2 p-4 bg-base-200 rounded-box"
-        >
-          <%= if @messages == [] do %>
-            <p class="text-center text-base-content/60 py-8">
-              No messages yet. Start the conversation!
-            </p>
-          <% end %>
-          <%= for message <- @messages do %>
-            <div id={"msg-#{message.id}"} class={[
-              "chat",
-              if(message.nickname == @nickname, do: "chat-end", else: "chat-start")
-            ]}>
-              <div class="chat-header text-xs opacity-70 mb-1">
-                {message.nickname}
-                <time class="text-xs opacity-50">
-                  {Calendar.strftime(message.inserted_at, "%H:%M")}
-                </time>
-              </div>
-              <div class={[
-                "chat-bubble",
-                if(message.nickname == @nickname, do: "chat-bubble-primary", else: "")
-              ]}>
-                {message.body}
-              </div>
+        <div class="flex gap-4 flex-1 min-h-0">
+          <div class="flex flex-col flex-1 min-w-0">
+            <div
+              id="messages"
+              phx-hook="ScrollBottom"
+              class="flex-1 overflow-y-auto space-y-2 p-4 bg-base-200 rounded-box"
+            >
+              <%= if @messages == [] do %>
+                <p class="text-center text-base-content/60 py-8">
+                  No messages yet. Start the conversation!
+                </p>
+              <% end %>
+              <%= for message <- @messages do %>
+                <div id={"msg-#{message.id}"} class={[
+                  "chat",
+                  if(message.nickname == @nickname, do: "chat-end", else: "chat-start")
+                ]}>
+                  <div class="chat-header text-xs opacity-70 mb-1">
+                    {message.nickname}
+                    <time class="text-xs opacity-50">
+                      {Calendar.strftime(message.inserted_at, "%H:%M")}
+                    </time>
+                  </div>
+                  <div class={[
+                    "chat-bubble",
+                    if(message.nickname == @nickname, do: "chat-bubble-primary", else: "")
+                  ]}>
+                    {message.body}
+                  </div>
+                </div>
+              <% end %>
             </div>
-          <% end %>
-        </div>
 
-        <form phx-submit="send_message" class="flex gap-2 mt-4">
-          <input
-            type="text"
-            name="body"
-            value={@message_form[:body].value}
-            placeholder="Type a message..."
-            class="input input-bordered flex-1"
-            autocomplete="off"
-            autofocus
-          />
-          <button type="submit" class="btn btn-primary">Send</button>
-        </form>
+            <form phx-submit="send_message" class="flex gap-2 mt-4">
+              <input
+                type="text"
+                name="body"
+                value={@message_form[:body].value}
+                placeholder="Type a message..."
+                class="input input-bordered flex-1"
+                autocomplete="off"
+                autofocus
+              />
+              <button type="submit" class="btn btn-primary">Send</button>
+            </form>
+          </div>
+
+          <div class="w-48 shrink-0">
+            <div class="bg-base-200 rounded-box p-4 h-full">
+              <h3 class="font-semibold text-sm mb-2">
+                Online ({length(@online_users)})
+              </h3>
+              <ul class="space-y-1">
+                <%= for user <- @online_users do %>
+                  <li class="flex items-center gap-2 text-sm">
+                    <span class="badge badge-success badge-xs"></span>
+                    {user}
+                  </li>
+                <% end %>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
     </Layouts.app>
     """

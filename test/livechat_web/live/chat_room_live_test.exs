@@ -19,6 +19,7 @@ defmodule LivechatWeb.ChatRoomLiveTest do
     assert html =~ "# test-room"
     assert html =~ "alice"
     assert html =~ "No messages yet"
+    assert html =~ "Online"
   end
 
   test "sends and displays a message", %{conn: conn, room: room} do

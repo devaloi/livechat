@@ -14,8 +14,7 @@ defmodule Livechat.Application do
        repos: Application.fetch_env!(:livechat, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:livechat, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Livechat.PubSub},
-      # Start a worker by calling: Livechat.Worker.start_link(arg)
-      # {Livechat.Worker, arg},
+      Livechat.Presence,
       # Start to serve requests, typically the last entry
       LivechatWeb.Endpoint
     ]
