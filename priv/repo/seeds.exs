@@ -1,11 +1,13 @@
 # Script for populating the database. You can run it as:
 #
 #     mix run priv/repo/seeds.exs
-#
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     Livechat.Repo.insert!(%Livechat.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+
+alias Livechat.Chat
+
+unless Chat.get_room_by_name("general") do
+  Chat.create_room(%{name: "general", description: "General discussion"})
+end
+
+unless Chat.get_room_by_name("random") do
+  Chat.create_room(%{name: "random", description: "Off-topic conversations"})
+end
