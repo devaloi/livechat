@@ -1,349 +1,239 @@
-# A09: agentforge — Multi-Agent Orchestration Framework
+# EX01: livechat — Real-Time Chat with Phoenix LiveView
 
-**Catalog ID:** A09 | **Size:** L | **Language:** Go 1.26
-**Repo name:** `agentforge`
-**One-liner:** A multi-agent orchestration framework — a supervisor agent decomposes tasks into a dependency DAG, delegates to specialized sub-agents (researcher, coder, reviewer, writer), manages shared memory, and synthesizes results. Built from primitives, no frameworks.
+**Catalog ID:** EX01 | **Size:** M | **Language:** Elixir 1.18 / Phoenix 1.7
+**Repo name:** `livechat`
+**One-liner:** A real-time chat application with Phoenix LiveView — chat rooms, presence tracking, typing indicators, message history, file uploads, message search, and zero custom JavaScript for all real-time features.
 
 ---
 
 ## Why This Stands Out
 
-- **The flagship AI project** — this is the most impressive, most complex project in the entire portfolio
-- **Supervisor agent** — receives a complex task, uses chain-of-thought planning to decompose it into a DAG of sub-tasks with dependencies
-- **Specialized agents** — researcher (web search), coder (code generation), reviewer (code review), writer (text synthesis) — each with a system prompt, tools, and memory
-- **Agent execution loop** — the core pattern: system prompt → user message → LLM → tool call → execute tool → feed result → repeat until done
-- **Shared memory** — key-value store that agents read/write for collaboration (researcher stores findings, coder reads them)
-- **DAG execution engine** — topological sort, parallel execution of independent sub-tasks, respects dependencies
-- **Tool system** — JSON Schema tool definitions, timeout-guarded execution, result parsing, extensible tool registry
-- **Multi-provider LLM** — interface supporting OpenAI, Anthropic, and Ollama with streaming
-- **Token budget management** — per-agent conversation history with automatic trimming when approaching token limits
-- **Observability** — structured logging of every agent decision, tool call, and result — full execution trace
-- **CLI** — `agentforge run "Build a REST API in Go"` — runs the full multi-agent flow in the terminal with live output
-- **No LangChain/LangGraph/CrewAI** — built from raw HTTP calls and Go primitives, demonstrating deep understanding of how agent systems actually work
-- **YAML configuration** — agent definitions, tool registrations, and LLM settings all in YAML — agents are configurable without code changes
+- **Zero JavaScript for real-time** — every interactive feature (messaging, presence, typing indicators, file uploads) is powered by LiveView over WebSocket, showcasing Elixir's killer feature
+- **Phoenix Presence** — distributed, CRDT-based presence tracking for online users and typing indicators, demonstrating understanding of Elixir's distributed systems primitives
+- **BEAM concurrency model** — each user connection is a lightweight process, chat rooms are GenServer processes, supervision trees manage fault tolerance — this is what makes Elixir special
+- **GenServer rate limiter** — custom rate limiting implemented as a GenServer with token bucket algorithm, showing OTP design patterns beyond basic web development
+- **LiveView uploads** — file and image sharing via LiveView's built-in upload system with progress tracking, image preview, and server-side validation — no JavaScript upload libraries
+- **Message search** — full-text search across message history using SQLite FTS5, demonstrating database-level text search without external search engines
+- **Supervision trees** — proper OTP application structure with supervisors for room registry, presence, and rate limiter processes — shows production Elixir thinking
+- **phx_gen_auth** — Phoenix's built-in auth generator for secure registration, login, and session management — no third-party auth libraries
 
 ---
 
 ## Architecture
 
 ```
-agentforge/
-├── cmd/
-│   └── agentforge/
-│       └── main.go                        # CLI entry: parse args, load config, run supervisor
-├── internal/
-│   ├── agent/
-│   │   ├── agent.go                       # Core agent: system prompt, tools, memory, execution loop
-│   │   ├── agent_test.go
-│   │   ├── config.go                      # Agent config: name, model, system prompt, tools, limits
-│   │   ├── loop.go                        # Execution loop: prompt → LLM → tool call → result → repeat
-│   │   ├── loop_test.go
-│   │   └── types.go                       # AgentResult, AgentStatus, LoopState
-│   ├── supervisor/
-│   │   ├── supervisor.go                  # Supervisor agent: receives task, plans, delegates, synthesizes
-│   │   ├── supervisor_test.go
-│   │   ├── planner.go                     # Task decomposition: complex task → DAG of sub-tasks
-│   │   ├── planner_test.go
-│   │   ├── synthesizer.go                 # Result synthesis: merge sub-agent outputs into final answer
-│   │   └── synthesizer_test.go
-│   ├── agents/
-│   │   ├── researcher.go                  # Researcher agent: web search tool, extract + summarize info
-│   │   ├── researcher_test.go
-│   │   ├── coder.go                       # Coder agent: code generation tool, write + explain code
-│   │   ├── coder_test.go
-│   │   ├── reviewer.go                    # Reviewer agent: code review tool, analyze code for issues
-│   │   ├── reviewer_test.go
-│   │   ├── writer.go                      # Writer agent: text generation, format + structure prose
-│   │   └── writer_test.go
-│   ├── planner/
-│   │   ├── dag.go                         # DAG data structure: nodes, edges, topological sort
-│   │   ├── dag_test.go
-│   │   ├── task.go                        # SubTask: id, description, agent type, dependencies, status
-│   │   └── task_test.go
-│   ├── executor/
-│   │   ├── executor.go                    # DAG executor: run sub-tasks respecting dependencies
-│   │   ├── executor_test.go
-│   │   ├── parallel.go                    # Parallel execution with errgroup + semaphore
-│   │   └── parallel_test.go
-│   ├── memory/
-│   │   ├── store.go                       # Shared memory: thread-safe key-value store
-│   │   ├── store_test.go
-│   │   └── types.go                       # MemoryEntry: key, value, author (agent name), timestamp
-│   ├── tools/
-│   │   ├── registry.go                    # Tool registry: register, list, get, invoke
-│   │   ├── registry_test.go
-│   │   ├── tool.go                        # Tool interface: Name, Description, Schema, Execute
-│   │   ├── web_search.go                  # Web search tool (simulated or API-backed)
-│   │   ├── web_search_test.go
-│   │   ├── code_gen.go                    # Code generation tool (delegates to LLM with code prompt)
-│   │   ├── code_review.go                 # Code review tool (analyzes code for issues)
-│   │   ├── text_gen.go                    # Text generation tool (delegates to LLM with writing prompt)
-│   │   ├── read_file.go                   # Read file from disk (sandboxed)
-│   │   ├── write_file.go                  # Write file to disk (sandboxed output directory)
-│   │   ├── memory_read.go                 # Read from shared memory
-│   │   ├── memory_write.go                # Write to shared memory
-│   │   └── schema.go                      # JSON Schema builder for tool parameters
-│   ├── provider/
-│   │   ├── provider.go                    # LLM provider interface: ChatComplete, Stream
-│   │   ├── openai.go                      # OpenAI: chat/completions with function calling
-│   │   ├── openai_test.go
-│   │   ├── anthropic.go                   # Anthropic: messages API with tool_use
-│   │   ├── anthropic_test.go
-│   │   ├── ollama.go                      # Ollama: local model API with tool support
-│   │   ├── ollama_test.go
-│   │   ├── mock.go                        # Mock provider for deterministic testing
-│   │   └── types.go                       # Message, ToolCall, ToolResult, Usage, StreamChunk
-│   ├── history/
-│   │   ├── history.go                     # Conversation history per agent with token counting
-│   │   ├── history_test.go
-│   │   ├── trimmer.go                     # Token budget trimmer: drop oldest messages to fit limit
-│   │   └── trimmer_test.go
-│   ├── config/
-│   │   ├── loader.go                      # Load YAML config files: agents, tools, providers
-│   │   ├── loader_test.go
-│   │   └── types.go                       # Config structs: AgentConfig, ToolConfig, ProviderConfig
-│   └── observability/
-│       ├── logger.go                      # Structured logger: agent events, tool calls, decisions
-│       ├── logger_test.go
-│       ├── trace.go                       # Execution trace: full DAG execution timeline
-│       └── types.go                       # TraceEvent, TraceSpan, EventType
+livechat/
+├── lib/
+│   ├── livechat/
+│   │   ├── application.ex           # OTP application: supervision tree
+│   │   ├── repo.ex                  # Ecto repo (SQLite)
+│   │   ├── accounts/
+│   │   │   ├── user.ex              # User schema: email, hashed_password, display_name, avatar_url
+│   │   │   ├── user_token.ex        # Session tokens (phx_gen_auth)
+│   │   │   └── accounts.ex          # Account context: register, login, get_user, update_profile
+│   │   ├── chat/
+│   │   │   ├── room.ex              # Room schema: name, description, slug, creator_id, is_private
+│   │   │   ├── membership.ex        # Membership schema: user_id, room_id, role (admin/member), joined_at
+│   │   │   ├── message.ex           # Message schema: body, user_id, room_id, attachment_url, inserted_at
+│   │   │   └── chat.ex              # Chat context: rooms CRUD, messages, memberships, search
+│   │   ├── rooms/
+│   │   │   ├── registry.ex          # Room registry GenServer: track active rooms
+│   │   │   └── server.ex            # Room GenServer: manage state, broadcast messages
+│   │   └── rate_limiter.ex          # GenServer rate limiter: token bucket per user
+│   ├── livechat_web/
+│   │   ├── router.ex                # Routes: auth, room, live routes
+│   │   ├── endpoint.ex              # Phoenix endpoint configuration
+│   │   ├── channels/
+│   │   │   ├── user_socket.ex       # Socket authentication
+│   │   │   └── room_channel.ex      # Room channel for PubSub (backup for non-LiveView)
+│   │   ├── presence.ex              # Phoenix Presence module
+│   │   ├── live/
+│   │   │   ├── room_live/
+│   │   │   │   ├── index.ex         # Room list LiveView: browse, create, join
+│   │   │   │   ├── show.ex          # Chat room LiveView: messages, input, presence sidebar
+│   │   │   │   ├── form_component.ex  # Create/edit room form (LiveComponent)
+│   │   │   │   └── message_component.ex  # Single message display (LiveComponent)
+│   │   │   ├── search_live.ex       # Message search LiveView with live results
+│   │   │   └── profile_live.ex      # User profile edit LiveView
+│   │   ├── components/
+│   │   │   ├── layouts.ex           # App and auth layouts
+│   │   │   ├── core_components.ex   # Core UI components (Phoenix defaults + custom)
+│   │   │   ├── chat_components.ex   # Chat-specific components: message bubble, room card, user badge
+│   │   │   └── upload_components.ex # Upload preview, progress bar components
+│   │   ├── user_auth.ex             # Auth plugs (phx_gen_auth generated)
+│   │   ├── user_session_controller.ex  # Session controller (phx_gen_auth)
+│   │   └── user_registration_controller.ex  # Registration controller (phx_gen_auth)
+├── priv/
+│   ├── repo/
+│   │   └── migrations/              # Ecto migrations
+│   └── static/
+│       └── uploads/                 # Uploaded files directory
+├── test/
+│   ├── livechat/
+│   │   ├── accounts_test.exs        # Account context tests
+│   │   ├── chat_test.exs            # Chat context tests (rooms, messages, search)
+│   │   ├── rate_limiter_test.exs    # Rate limiter GenServer tests
+│   │   └── rooms/
+│   │       ├── registry_test.exs    # Room registry tests
+│   │       └── server_test.exs      # Room server tests
+│   ├── livechat_web/
+│   │   ├── live/
+│   │   │   ├── room_live_test.exs   # Room list and chat LiveView tests
+│   │   │   └── search_live_test.exs # Search LiveView tests
+│   │   ├── presence_test.exs        # Presence tracking tests
+│   │   └── controllers/
+│   │       ├── user_session_controller_test.exs
+│   │       └── user_registration_controller_test.exs
+│   ├── support/
+│   │   ├── conn_case.ex             # Test case for controller tests
+│   │   ├── data_case.ex             # Test case for context tests
+│   │   ├── fixtures.ex              # Test data factories
+│   │   └── channel_case.ex          # Test case for channel tests
+│   └── test_helper.exs
 ├── config/
-│   ├── agents.yaml                        # Agent definitions: name, model, system prompt, tools
-│   ├── tools.yaml                         # Tool registrations: name, description, schema
-│   └── providers.yaml                     # LLM provider config: API keys (env refs), models, defaults
-├── examples/
-│   ├── simple/main.go                     # Single-agent: researcher answers a question
-│   ├── code-task/main.go                  # Multi-agent: plan → code → review → deliver
-│   └── research-report/main.go            # Multi-agent: research → write → synthesize report
-├── testdata/
-│   ├── mock_responses/                    # Scripted LLM responses for deterministic tests
-│   │   ├── planner_response.json
-│   │   ├── researcher_response.json
-│   │   ├── coder_response.json
-│   │   └── reviewer_response.json
-│   └── configs/                           # Test config files
-│       ├── test_agents.yaml
-│       └── test_tools.yaml
-├── go.mod
-├── go.sum
-├── Makefile                               # build, test, lint, run, examples
-├── .env.example                           # OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_URL
+│   ├── config.exs                   # Base configuration
+│   ├── dev.exs                      # Development config (SQLite path, LiveReload)
+│   ├── test.exs                     # Test config (async-safe SQLite)
+│   ├── prod.exs                     # Production config
+│   └── runtime.exs                  # Runtime secrets (env vars)
+├── assets/
+│   ├── css/
+│   │   └── app.css                  # Tailwind CSS imports + custom styles
+│   ├── js/
+│   │   └── app.js                   # Phoenix LiveView JS hooks (minimal)
+│   └── tailwind.config.js           # Tailwind configuration
+├── mix.exs                          # Project deps and config
+├── mix.lock
+├── .formatter.exs                   # Elixir formatter config
 ├── .gitignore
-├── .golangci.yml
 ├── LICENSE
 └── README.md
 ```
 
 ---
 
-## Core Concepts
+## PubSub Topics
 
-### Agent Execution Loop
+| Topic | Published Events | Subscribers |
+|-------|-----------------|-------------|
+| `room:{room_id}` | `new_message`, `message_deleted`, `user_typing`, `user_stopped_typing` | Room LiveView (show.ex) |
+| `room:{room_id}:presence` | Presence diffs (joins, leaves) | Room LiveView presence sidebar |
+| `rooms:lobby` | `room_created`, `room_updated`, `room_deleted` | Room list LiveView (index.ex) |
+| `user:{user_id}` | `notification` (mentioned, invited) | User-specific LiveView hooks |
 
-```
-┌─────────────────────────────────────────┐
-│              Agent Loop                  │
-│                                          │
-│  System Prompt + User Message            │
-│         ↓                                │
-│  Call LLM (with tool schemas)            │
-│         ↓                                │
-│  Response has tool_call? ──→ NO ──→ Done │
-│         ↓ YES                            │
-│  Validate args against schema            │
-│         ↓                                │
-│  Execute tool (with timeout)             │
-│         ↓                                │
-│  Append tool_result to history           │
-│         ↓                                │
-│  Token budget check → trim if needed     │
-│         ↓                                │
-│  Loop back to "Call LLM"                 │
-│  (max iterations guard)                  │
-└─────────────────────────────────────────┘
-```
+---
 
-### Supervisor Flow
+## Presence Tracking
 
-```
-User: "Build a REST API for a todo app in Go"
-         ↓
-┌─ Supervisor ──────────────────────────────────┐
-│  1. Plan: decompose task into sub-tasks        │
-│     → research: "Go REST API best practices"   │
-│     → code: "Implement todo CRUD handlers"     │
-│     → code: "Implement data models"            │
-│     → review: "Review generated code"          │
-│     → writer: "Write API documentation"        │
-│                                                │
-│  2. Build DAG:                                 │
-│     research ──→ code(handlers) ──→ review     │
-│                  code(models) ────→ review      │
-│                                    review ──→ writer │
-│                                                │
-│  3. Execute DAG (parallel where possible):     │
-│     Step 1: research (independent)             │
-│     Step 2: code(handlers) + code(models)      │
-│     Step 3: review                             │
-│     Step 4: writer                             │
-│                                                │
-│  4. Synthesize: merge all outputs into final   │
-└───────────────────────────────────────────────┘
+```elixir
+# Track user joining a room
+Presence.track(self(), "room:#{room_id}:presence", user.id, %{
+  display_name: user.display_name,
+  avatar_url: user.avatar_url,
+  typing: false,
+  joined_at: DateTime.utc_now()
+})
+
+# Update typing status
+Presence.update(self(), "room:#{room_id}:presence", user.id, fn meta ->
+  Map.put(meta, :typing, true)
+end)
+
+# Get online users for a room
+presences = Presence.list("room:#{room_id}:presence")
+# => %{"user_1" => %{metas: [%{display_name: "Alice", typing: false}]}, ...}
 ```
 
 ---
 
-## Agent Types
+## Room GenServer
 
-| Agent | System Prompt Focus | Tools | Output |
-|-------|-------------------|-------|--------|
-| Supervisor | Task decomposition, planning, delegation | planner (internal) | Sub-task DAG + final synthesis |
-| Researcher | Information gathering, summarization | web_search, memory_write | Research findings stored in shared memory |
-| Coder | Code generation, implementation | code_gen, write_file, memory_read, memory_write | Generated code files + explanation |
-| Reviewer | Code analysis, bug detection, improvements | code_review, memory_read | Review comments + approval/rejection |
-| Writer | Documentation, structuring, formatting | text_gen, memory_read | Formatted text documents |
+```elixir
+defmodule Livechat.Rooms.Server do
+  use GenServer
 
----
+  # State: %{room_id, recent_messages, member_count, created_at}
 
-## Tool Definitions
+  def start_link(room_id), do: GenServer.start_link(__MODULE__, room_id, name: via(room_id))
 
-| Tool | Parameters | Returns | Timeout |
-|------|-----------|---------|---------|
-| `web_search` | `query: string` | `results: [{title, snippet, url}]` | 10s |
-| `code_gen` | `language: string, task: string, context: string` | `code: string, explanation: string` | 30s |
-| `code_review` | `code: string, language: string` | `issues: [{severity, line, message}], approved: bool` | 15s |
-| `text_gen` | `topic: string, style: string, context: string` | `text: string` | 20s |
-| `read_file` | `path: string` | `content: string` | 5s |
-| `write_file` | `path: string, content: string` | `success: bool` | 5s |
-| `memory_read` | `key: string` | `value: string, found: bool` | 1s |
-| `memory_write` | `key: string, value: string` | `success: bool` | 1s |
+  def broadcast_message(room_id, message), do: GenServer.cast(via(room_id), {:broadcast, message})
+  def get_state(room_id), do: GenServer.call(via(room_id), :get_state)
 
----
-
-## Shared Memory
-
-```go
-// Agents collaborate through shared memory
-memory.Write("research_findings", "Go REST APIs typically use...")   // researcher writes
-findings := memory.Read("research_findings")                         // coder reads
-memory.Write("generated_code", "package main\n...")                  // coder writes
-code := memory.Read("generated_code")                                // reviewer reads
-```
-
-| Operation | Thread-Safe | Description |
-|-----------|-------------|-------------|
-| `Read(key)` | Yes (RLock) | Read value by key, returns (value, found) |
-| `Write(key, value)` | Yes (Lock) | Write value, records author + timestamp |
-| `List()` | Yes (RLock) | List all keys with metadata |
-| `Delete(key)` | Yes (Lock) | Remove key |
-
----
-
-## YAML Configuration
-
-### agents.yaml
-
-```yaml
-agents:
-  researcher:
-    model: gpt-4o
-    provider: openai
-    system_prompt: |
-      You are a research assistant. Your job is to find accurate, relevant
-      information using web search. Summarize findings clearly and store
-      them in shared memory for other agents to use.
-    tools: [web_search, memory_write]
-    max_iterations: 5
-    token_budget: 8000
-
-  coder:
-    model: gpt-4o
-    provider: openai
-    system_prompt: |
-      You are an expert software engineer. Write clean, well-documented,
-      production-quality code. Read research findings from shared memory
-      for context. Write generated code to files.
-    tools: [code_gen, read_file, write_file, memory_read, memory_write]
-    max_iterations: 10
-    token_budget: 16000
-
-  reviewer:
-    model: claude-sonnet-4-20250514
-    provider: anthropic
-    system_prompt: |
-      You are a senior code reviewer. Analyze code for bugs, security issues,
-      performance problems, and style. Be constructive and specific.
-    tools: [code_review, memory_read]
-    max_iterations: 3
-    token_budget: 8000
-
-  writer:
-    model: gpt-4o-mini
-    provider: openai
-    system_prompt: |
-      You are a technical writer. Create clear, well-structured documentation.
-      Read context from shared memory to understand what was built.
-    tools: [text_gen, memory_read]
-    max_iterations: 5
-    token_budget: 8000
+  # Uses Registry for process naming: {:via, Registry, {Livechat.RoomRegistry, room_id}}
+end
 ```
 
 ---
 
-## CLI Usage
+## Rate Limiter (GenServer)
 
+```elixir
+defmodule Livechat.RateLimiter do
+  use GenServer
+
+  # Token bucket per user
+  # Config: max_tokens (10), refill_rate (1 per second), refill_interval (1000ms)
+
+  def check_rate(user_id), do: GenServer.call(__MODULE__, {:check, user_id})
+  # Returns :ok | {:error, :rate_limited, retry_after_ms}
+
+  # Periodic refill via Process.send_after/3
+  def handle_info(:refill, state), do: # add tokens to all buckets, schedule next refill
+end
 ```
-agentforge run "Build a REST API for a todo app in Go"
-agentforge run --config ./config/ "Research quantum computing advances in 2025"
-agentforge run --provider anthropic --model claude-sonnet-4-20250514 "Review this Go code for issues"
-agentforge agents list                    # List configured agents
-agentforge tools list                     # List registered tools
-agentforge config validate ./config/      # Validate configuration files
+
+---
+
+## LiveView Upload Config
+
+```elixir
+# In show.ex LiveView
+@impl true
+def mount(_params, _session, socket) do
+  {:ok,
+   socket
+   |> allow_upload(:attachment,
+     accept: ~w(.jpg .jpeg .png .gif .webp .pdf .txt),
+     max_entries: 3,
+     max_file_size: 10_000_000,  # 10 MB
+     auto_upload: true
+   )}
+end
+
+# Upload progress and preview handled entirely by LiveView — zero JS
 ```
 
-### CLI Output (during execution)
+---
 
+## Message Search (SQLite FTS5)
+
+```sql
+-- Migration: Create FTS5 virtual table
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+  body,
+  content='messages',
+  content_rowid='id'
+);
+
+-- Triggers to keep FTS index in sync
+CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, body) VALUES (new.id, new.body);
+END;
 ```
-🔵 Supervisor: Planning task decomposition...
-   → Created 4 sub-tasks in dependency DAG
 
-📋 Execution Plan:
-   Step 1: [researcher] Research Go REST API best practices
-   Step 2: [coder] Implement data models  |  [coder] Implement handlers
-   Step 3: [reviewer] Review generated code
-   Step 4: [writer] Write API documentation
-
-🔍 Researcher: Starting "Research Go REST API best practices"
-   🔧 web_search("Go REST API best practices 2025")
-   📝 Stored findings in shared memory: research_findings
-   ✅ Completed in 4.2s
-
-💻 Coder: Starting "Implement data models" (parallel)
-   📖 Read: research_findings
-   🔧 code_gen(language="go", task="todo data models")
-   💾 Wrote: output/models.go
-   ✅ Completed in 8.1s
-
-💻 Coder: Starting "Implement handlers" (parallel)
-   📖 Read: research_findings
-   🔧 code_gen(language="go", task="todo CRUD handlers")
-   💾 Wrote: output/handlers.go
-   ✅ Completed in 12.3s
-
-🔎 Reviewer: Starting "Review generated code"
-   📖 Read: generated_code
-   🔧 code_review(language="go")
-   ✅ Approved with 2 minor suggestions. Completed in 5.7s
-
-📝 Writer: Starting "Write API documentation"
-   📖 Read: research_findings, generated_code, review_results
-   🔧 text_gen(topic="todo API docs")
-   💾 Wrote: output/README.md
-   ✅ Completed in 6.8s
-
-🏁 Task Complete (37.1s total)
-   Files generated: output/models.go, output/handlers.go, output/README.md
-   Agents used: 4 | Tool calls: 9 | Total tokens: 24,847
+```elixir
+# In chat.ex context
+def search_messages(room_id, query) do
+  Repo.all(
+    from m in Message,
+      join: fts in fragment("messages_fts"),
+      on: m.id == fts.rowid,
+      where: m.room_id == ^room_id and fragment("messages_fts MATCH ?", ^query),
+      order_by: [desc: fragment("rank")],
+      limit: 50,
+      preload: [:user]
+  )
+end
 ```
 
 ---
@@ -352,274 +242,166 @@ agentforge config validate ./config/      # Validate configuration files
 
 | Component | Choice |
 |-----------|--------|
-| Language | Go 1.26 |
-| HTTP | stdlib `net/http` (for LLM API calls) |
-| JSON | stdlib `encoding/json` |
-| YAML | `gopkg.in/yaml.v3` |
-| CLI | `cobra` + `pflag` |
-| Concurrency | `errgroup` + semaphore channel |
-| LLM Providers | OpenAI, Anthropic, Ollama (raw HTTP, no SDKs) |
-| Testing | stdlib + mock provider + table-driven |
-| Linting | golangci-lint |
+| Language | Elixir 1.18 |
+| Framework | Phoenix 1.7 |
+| Real-time | Phoenix LiveView 1.0 |
+| Presence | Phoenix Presence (CRDT-based) |
+| ORM | Ecto 3.12 |
+| Database | SQLite via Ecto SQLite3 |
+| Search | SQLite FTS5 (full-text search) |
+| Auth | phx_gen_auth (built-in generator) |
+| CSS | Tailwind CSS (built-in with Phoenix 1.7) |
+| Uploads | LiveView uploads (built-in) |
+| Process Management | GenServer, Registry, Supervisor |
+| Testing | ExUnit (built-in) |
+| Formatting | mix format |
 
 ---
 
 ## Phased Build Plan
 
-### Phase 1: Foundation & Types
+### Phase 1: Foundation
 
 **1.1 — Project setup**
-- `go mod init github.com/devaloi/agentforge`
-- Directory structure, Makefile, `.gitignore`, `.golangci.yml`
-- Add LICENSE (MIT), `.env.example`
+- `mix phx.new livechat --database sqlite3`
+- Verify Phoenix 1.7 with LiveView, Tailwind, and esbuild
+- Configure `config/dev.exs` and `config/test.exs` for SQLite
+- Verify `mix test` passes on fresh scaffold
 
-**1.2 — Core types**
-- `Message` struct: Role (system/user/assistant/tool), Content, ToolCalls, ToolCallID
-- `ToolCall` struct: ID, Name, Arguments (JSON string)
-- `ToolResult` struct: ToolCallID, Content, IsError
-- `AgentConfig`: Name, Model, Provider, SystemPrompt, Tools (list), MaxIterations, TokenBudget
-- `SubTask`: ID, Description, AgentType, Dependencies ([]string), Status, Result
-- Tests: type construction, JSON marshaling round-trips
+**1.2 — Authentication**
+- Run `mix phx.gen.auth Accounts User users`
+- Adds: User schema, user_token, registration/login controllers, auth plugs
+- Add `display_name` and `avatar_url` fields to User schema
+- Migration for user table + tokens
+- Tests: registration, login, logout, session management (generated + custom)
 
-**1.3 — Configuration loader**
-- Load `agents.yaml`: parse into `[]AgentConfig`
-- Load `tools.yaml`: parse into `[]ToolConfig`
-- Load `providers.yaml`: parse into `ProviderConfig` (API keys from env vars, not YAML)
-- Validate: agent references valid provider, tools exist, required fields present
-- Tests: load valid config, missing fields, invalid references
+**1.3 — Chat schemas + context**
+- `Room` schema: name, description, slug (unique), creator_id (FK→User), is_private
+- `Membership` schema: user_id, room_id, role (admin/member), joined_at
+- `Message` schema: body, user_id (FK→User), room_id (FK→Room), attachment_url, inserted_at
+- `Chat` context: create_room, list_rooms, get_room, join_room, leave_room, create_message, list_messages
+- Migrations for all tables
+- Tests: CRUD for rooms, memberships, messages; context functions
 
-### Phase 2: LLM Providers & History
+**1.4 — Message search (FTS5)**
+- Migration: create `messages_fts` virtual table with triggers
+- `Chat.search_messages(room_id, query)` using FTS5 MATCH
+- Tests: insert messages, search by keyword, ranking works
 
-**2.1 — Provider interface**
-- `Provider` interface: `ChatComplete(ctx, messages []Message, tools []Tool, config Config) (*Response, error)`
-- `Response`: Content string, ToolCalls []ToolCall, Usage (prompt tokens, completion tokens)
-- `StreamChunk`: Delta content, tool call delta, finish reason
-- Provider registry: get provider by name
+### Phase 2: LiveView Chat
 
-**2.2 — OpenAI provider**
-- HTTP POST to `chat/completions` with function calling
-- Format messages: system, user, assistant, tool roles
-- Format tools: JSON Schema function definitions
-- Parse response: extract content, tool_calls, usage
-- Streaming: SSE parsing, yield chunks
-- Tests with httptest: success, tool call, streaming, error, rate limit
+**2.1 — Room list LiveView**
+- `RoomLive.Index`: list all rooms, show member counts, join buttons
+- Create room: modal with `FormComponent` LiveComponent
+- PubSub: subscribe to `rooms:lobby`, update list on room_created/updated/deleted
+- Tests: renders room list, create room via form, real-time update on PubSub
 
-**2.3 — Anthropic provider**
-- HTTP POST to `messages` API with tool_use
-- Format messages: Anthropic's content block format
-- Parse tool_use content blocks vs text blocks
-- Handle stop_reason: "end_turn" vs "tool_use"
-- Tests with httptest matching OpenAI coverage
+**2.2 — Chat room LiveView**
+- `RoomLive.Show`: message list, message input, send on Enter
+- Load last 50 messages on mount, infinite scroll for history (load more on scroll up)
+- New messages: broadcast via PubSub `room:{room_id}`, prepend to list
+- `MessageComponent`: avatar, display name, timestamp, message body, attachment preview
+- Rate limiting: check `RateLimiter.check_rate(user_id)` before creating message
+- Tests: renders messages, send message appears, rate limit blocks rapid messages
 
-**2.4 — Ollama provider**
-- HTTP POST to local Ollama API (`/api/chat`)
-- Format messages and tools for Ollama's format
-- Parse response with tool calls
-- Tests with httptest
+**2.3 — Presence sidebar**
+- Track user join/leave via `Presence.track` on mount/unmount
+- Sidebar: list online users with avatar and display name
+- Subscribe to presence diffs, update sidebar reactively
+- Tests: user appears on join, disappears on leave
 
-**2.5 — Conversation history**
-- Per-agent message history: append user, assistant, tool messages
-- Token counting: approximate count (chars / 4 as rough estimate)
-- Trimmer: when approaching token budget, drop oldest non-system messages
-- Configurable token budget per agent
-- Tests: append, trim at budget, system message preserved, accurate counting
+**2.4 — Typing indicators**
+- On keydown in message input: `Presence.update` with `typing: true`
+- Debounce: clear typing after 2 seconds of inactivity (`:clear_typing` timer)
+- Display "Alice is typing..." below message list for users with `typing: true`
+- Tests: typing shows indicator, stops after timeout
 
-### Phase 3: Tool System & Shared Memory
+### Phase 3: Uploads + OTP Patterns
 
-**3.1 — Tool interface and registry**
-- `Tool` interface: `Name() string`, `Description() string`, `Schema() JSONSchema`, `Execute(ctx, params map[string]any) (*ToolResult, error)`
-- `Registry`: Register, Get, List, Invoke (with timeout)
-- JSON Schema for each tool's parameters: type, properties, required
-- Invoke wraps Execute with `context.WithTimeout`
-- Tests: register, invoke, timeout, unknown tool, schema validation
+**3.1 — File uploads**
+- LiveView `allow_upload` in chat room: images + documents
+- Upload preview: thumbnail for images, file icon for documents
+- Progress bar via LiveView upload progress tracking
+- Save to `priv/static/uploads/` with unique filenames
+- Store `attachment_url` in message record
+- Display: inline image preview or download link in MessageComponent
+- Tests: upload file, message has attachment, preview renders
 
-**3.2 — Built-in tools**
-- `web_search`: query → results array (simulated with configurable mock/real API)
-- `code_gen`: language + task + context → generated code + explanation (delegates to LLM)
-- `code_review`: code + language → issues array + approved bool (delegates to LLM)
-- `text_gen`: topic + style + context → generated text (delegates to LLM)
-- `read_file`: path → content (sandboxed to output directory)
-- `write_file`: path + content → success (sandboxed to output directory)
-- Each tool has JSON Schema, timeout config, error handling
-- Tests for each tool (mock LLM for generation tools)
+**3.2 — Room GenServer**
+- `Rooms.Server` GenServer per active room: hold recent message cache, member count
+- `Rooms.Registry` via Elixir `Registry`: lookup room server by room_id
+- `DynamicSupervisor` to start/stop room servers on demand
+- Room server starts when first user joins, stops after idle timeout
+- Tests: start/stop server, broadcast message, idle shutdown
 
-**3.3 — Memory tools and shared store**
-- `SharedMemory`: thread-safe key-value store (`sync.RWMutex` + map)
-- `MemoryEntry`: Value, Author (agent name), Timestamp, Tags
-- `memory_read` tool: read key from shared memory
-- `memory_write` tool: write key to shared memory with agent attribution
-- `List()`: return all keys with metadata
-- Tests: concurrent read/write, agent attribution, list keys
+**3.3 — Rate limiter GenServer**
+- `RateLimiter` GenServer: token bucket per user_id
+- Config: 10 messages per 10 seconds per user
+- `check_rate(user_id)` → `:ok` or `{:error, :rate_limited, retry_after_ms}`
+- Periodic token refill via `Process.send_after`
+- Tests: allows burst, blocks after limit, refills over time
 
-### Phase 4: Agent Execution Loop
+**3.4 — Supervision tree**
+- Application supervisor starts: Repo, PubSub, Presence, Endpoint, RateLimiter, RoomRegistry, RoomSupervisor
+- One-for-one strategy for independent processes
+- Room DynamicSupervisor for room servers
+- Tests: application starts cleanly, processes registered
 
-**4.1 — Core agent loop**
-- `Agent` struct: config, provider, tools (registry), history, memory (shared)
-- `Run(ctx, task string) (*AgentResult, error)`:
-  1. Append system prompt to history
-  2. Append user message (task) to history
-  3. Call provider with history + tool schemas
-  4. If response has tool calls → execute each tool → append results → loop
-  5. If response has no tool calls → return content as final result
-  6. Max iterations guard with clear error
-- `AgentResult`: Content, ToolCallsUsed, TokensUsed, Duration
-- Tests with mock provider: no tools, single tool call, multi-tool chain, max iterations
+### Phase 4: Polish + Search + Testing
 
-**4.2 — Specialized agent constructors**
-- `NewResearcher(config, provider, memory)` — configured with researcher system prompt + tools
-- `NewCoder(config, provider, memory)` — configured with coder system prompt + tools
-- `NewReviewer(config, provider, memory)` — configured with reviewer system prompt + tools
-- `NewWriter(config, provider, memory)` — configured with writer system prompt + tools
-- Each reads its config from agents.yaml, registers its tools subset
-- Tests: each agent type runs with mock provider, uses correct tools
+**4.1 — Message search LiveView**
+- `SearchLive`: search input with live results (debounced, updates as you type)
+- Scoped to current room or global (with room name in results)
+- FTS5 ranking for result ordering
+- Highlight matching terms in results
+- Click result → navigate to room with message highlighted
+- Tests: search returns results, scoping works, no results shown
 
-### Phase 5: Planning & DAG Execution
+**4.2 — User profile LiveView**
+- `ProfileLive`: edit display_name, avatar_url
+- Avatar upload via LiveView uploads
+- Tests: update profile, avatar upload works
 
-**5.1 — DAG data structure**
-- `DAG` struct: nodes map, edges adjacency list
-- `AddNode(task SubTask)`, `AddEdge(from, to string)` — dependency: `from` must complete before `to`
-- `TopologicalSort() ([][]string, error)` — return execution layers (parallel groups)
-- Cycle detection: return error if DAG has cycles
-- `Ready(completed []string) []string` — return tasks whose dependencies are all completed
-- Tests: simple chain, diamond dependency, parallel groups, cycle detection
+**4.3 — Chat components**
+- `chat_components.ex`: message_bubble (with variants for own vs other), room_card, user_badge, online_indicator
+- `upload_components.ex`: upload_preview, progress_bar, file_icon
+- Responsive design: mobile-friendly chat layout, collapsible sidebar
+- Tests: components render with various props
 
-**5.2 — Task planner**
-- `Plan(ctx, task string, provider Provider) (*DAG, error)`
-- Send task to supervisor LLM with planning prompt
-- Planning prompt instructs LLM to decompose into sub-tasks with JSON output:
-  ```json
-  {
-    "tasks": [
-      {"id": "research", "description": "...", "agent": "researcher", "depends_on": []},
-      {"id": "code_models", "description": "...", "agent": "coder", "depends_on": ["research"]},
-      {"id": "review", "description": "...", "agent": "reviewer", "depends_on": ["code_models"]}
-    ]
-  }
-  ```
-- Parse LLM response into DAG structure
-- Validate: all dependencies reference valid task IDs, agent types exist
-- Tests with mock provider: simple plan, complex plan, invalid plan handling
+**4.4 — Comprehensive ExUnit tests**
+- Context tests: Accounts, Chat (CRUD, search, memberships)
+- LiveView tests: room list, chat room, presence, typing, uploads, search
+- GenServer tests: rate limiter, room server, registry
+- Controller tests: auth flows (generated + custom)
+- Minimum coverage: all happy paths + key error paths
 
-**5.3 — DAG executor**
-- `Execute(ctx, dag *DAG, agentFactory AgentFactory) (*ExecutionResult, error)`
-- Get execution layers from topological sort
-- For each layer: run all tasks in parallel (`errgroup` with semaphore)
-- Each task: create agent of specified type, run with task description
-- Collect results per task, update task status
-- If a task fails: mark dependents as blocked, continue independent tasks
-- `ExecutionResult`: per-task results, total duration, success/failure counts
-- Tests: sequential execution, parallel execution, failure propagation, timeout
-
-### Phase 6: Supervisor & Synthesis
-
-**6.1 — Supervisor agent**
-- `Supervisor` struct: planner, executor, synthesizer, config
-- `Run(ctx, task string) (*SupervisorResult, error)`:
-  1. Call planner to decompose task into DAG
-  2. Log execution plan
-  3. Call executor to run DAG
-  4. Call synthesizer to merge results
-  5. Return final synthesized output
-- Pass shared memory to all sub-agents for collaboration
-- Tests: full flow with mock provider (scripted planning + execution responses)
-
-**6.2 — Result synthesizer**
-- `Synthesize(ctx, task string, results map[string]*AgentResult, provider Provider) (string, error)`
-- Send all sub-task results to LLM with synthesis prompt
-- Synthesis prompt: "Given the original task and these sub-agent results, produce the final comprehensive output"
-- Format results clearly for the LLM (task description + agent output for each)
-- Tests: synthesis produces coherent output, handles partial failures
-
-**6.3 — Observability**
-- Structured logger: `slog` with JSON output
-- Log events: `agent_start`, `agent_complete`, `tool_call`, `tool_result`, `plan_created`, `task_started`, `task_completed`, `task_failed`
-- Each event includes: timestamp, agent name, duration, token usage
-- Execution trace: collect all events into a timeline, printable summary
-- Tests: events logged correctly, trace reconstruction
-
-### Phase 7: CLI & Examples
-
-**7.1 — CLI with cobra**
-- `agentforge run <task>` — run supervisor with task
-  - `--config` — config directory (default `./config/`)
-  - `--provider` — override default provider
-  - `--model` — override default model
-  - `--verbose` — show detailed execution trace
-  - `--output-dir` — directory for generated files (default `./output/`)
-- `agentforge agents list` — list configured agents with tools
-- `agentforge tools list` — list registered tools with schemas
-- `agentforge config validate <dir>` — validate config files
-- Live output during execution: agent status, tool calls, progress
-
-**7.2 — Example programs**
-- `simple/main.go`: single researcher agent answers a question
-- `code-task/main.go`: multi-agent code generation (plan → code → review → deliver)
-- `research-report/main.go`: multi-agent research report (research → write → synthesize)
-- Each example is self-contained with inline config (no YAML dependency)
-
-**7.3 — Integration tests**
-- Full supervisor test: task → plan → execute → synthesize with mock provider
-- Multi-agent collaboration test: agents read/write shared memory correctly
-- DAG execution test: parallel tasks run concurrently, dependencies respected
-- Failure handling test: sub-agent failure doesn't crash supervisor
-- Config loading test: YAML files parse and validate correctly
-
-### Phase 8: Documentation & Polish
-
-**8.1 — YAML config files**
-- `config/agents.yaml`: all 4 agent types with realistic system prompts
-- `config/tools.yaml`: all tools with JSON Schema parameter definitions
-- `config/providers.yaml`: provider configs with env var references for API keys
-
-**8.2 — README**
-- Architecture diagram (supervisor flow)
-- Quick start: `go build && agentforge run "Build a REST API"`
-- Agent types table with descriptions
-- Tool reference table
-- Configuration guide (YAML format)
-- CLI usage with examples
-- How to add custom agents and tools
-- Example execution output (the full CLI output shown above)
-- Design decisions: why no LangChain, why DAG, why shared memory
-
-**8.3 — Final checks**
-- `go build ./...` clean
-- `go test -race ./...` all pass
-- `golangci-lint run` clean
-- CLI: `agentforge run`, `agentforge agents list`, `agentforge tools list` all work
-- Config validation catches errors
-- Example programs run with mock provider
-- No `// TODO` or `// FIXME`
-- Fresh clone → build → run (with mock) works
+**4.5 — README and documentation**
+- Badges, install, quick start (3 commands: deps, migrate, server)
+- Screenshots (placeholder)
+- Architecture overview: LiveView, PubSub, Presence, GenServer
+- OTP supervision tree diagram
+- Features list with "zero JavaScript" emphasis
+- Development commands (test, format, routes)
+- Deployment notes
 
 ---
 
 ## Commit Plan
 
-1. `chore: scaffold project with directory structure and config`
-2. `feat: add core types — Message, ToolCall, SubTask, AgentConfig`
-3. `feat: add YAML configuration loader with validation`
-4. `feat: add LLM provider interface and mock provider`
-5. `feat: add OpenAI provider with function calling and streaming`
-6. `feat: add Anthropic provider with tool_use support`
-7. `feat: add Ollama provider for local models`
-8. `feat: add conversation history with token budget trimming`
-9. `feat: add tool interface, registry, and JSON Schema definitions`
-10. `feat: add built-in tools — web search, code gen, code review, text gen`
-11. `feat: add file tools — read and write with sandboxing`
-12. `feat: add shared memory store with agent attribution`
-13. `feat: add memory read/write tools`
-14. `feat: add core agent execution loop with max iterations`
-15. `feat: add specialized agent constructors (researcher, coder, reviewer, writer)`
-16. `feat: add DAG data structure with topological sort and cycle detection`
-17. `feat: add task planner — decompose task into sub-task DAG via LLM`
-18. `feat: add DAG executor with parallel execution and failure handling`
-19. `feat: add supervisor agent with plan-execute-synthesize flow`
-20. `feat: add result synthesizer for merging sub-agent outputs`
-21. `feat: add structured logging and execution trace`
-22. `feat: add CLI with cobra — run, agents list, tools list, config validate`
-23. `feat: add example programs — simple, code-task, research-report`
-24. `test: add integration tests for full supervisor flow`
-25. `feat: add YAML config files for agents, tools, and providers`
-26. `docs: add README with architecture, configuration, and usage guide`
-27. `chore: final lint pass and cleanup`
+1. `chore: scaffold Phoenix project with LiveView and SQLite`
+2. `feat: add user authentication with phx_gen_auth`
+3. `feat: add Room, Membership, and Message schemas with context`
+4. `feat: add FTS5 message search with SQLite`
+5. `feat: add room list LiveView with create form`
+6. `feat: add chat room LiveView with real-time messaging`
+7. `feat: add Presence tracking with online user sidebar`
+8. `feat: add typing indicators via Presence updates`
+9. `feat: add file uploads with LiveView upload system`
+10. `feat: add Room GenServer with Registry and DynamicSupervisor`
+11. `feat: add rate limiter GenServer with token bucket`
+12. `feat: add OTP supervision tree for all processes`
+13. `feat: add message search LiveView with live results`
+14. `feat: add user profile LiveView with avatar upload`
+15. `feat: add chat and upload UI components`
+16. `test: add comprehensive ExUnit tests for contexts and LiveViews`
+17. `docs: add README with architecture, features, and setup guide`
