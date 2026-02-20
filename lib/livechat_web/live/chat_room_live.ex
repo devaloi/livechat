@@ -108,10 +108,13 @@ defmodule LivechatWeb.ChatRoomLive do
                 </p>
               <% end %>
               <%= for message <- @messages do %>
-                <div id={"msg-#{message.id}"} class={[
-                  "chat",
-                  if(message.nickname == @nickname, do: "chat-end", else: "chat-start")
-                ]}>
+                <div
+                  id={"msg-#{message.id}"}
+                  class={[
+                    "chat",
+                    if(message.nickname == @nickname, do: "chat-end", else: "chat-start")
+                  ]}
+                >
                   <div class="chat-header text-xs opacity-70 mb-1">
                     {message.nickname}
                     <time class="text-xs opacity-50">

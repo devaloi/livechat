@@ -1,5 +1,7 @@
 # LiveChat
 
+[![CI](https://github.com/devaloi/livechat/actions/workflows/ci.yml/badge.svg)](https://github.com/devaloi/livechat/actions/workflows/ci.yml)
+
 Real-time chat application built with Elixir, Phoenix LiveView, and SQLite. Features instant messaging via WebSockets, chat room management, and live presence tracking — no JavaScript framework required.
 
 ## Features

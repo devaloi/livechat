@@ -101,7 +101,12 @@ defmodule LivechatWeb.LobbyLive do
           <div class="card bg-base-200 shadow">
             <div class="card-body items-center text-center">
               <h2 class="card-title">Choose a Nickname</h2>
-              <form phx-submit="set_nickname" phx-hook="StoreNickname" id="nickname-form" class="flex gap-2 w-full max-w-xs">
+              <form
+                phx-submit="set_nickname"
+                phx-hook="StoreNickname"
+                id="nickname-form"
+                class="flex gap-2 w-full max-w-xs"
+              >
                 <input
                   type="text"
                   name="nickname"
